@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One job, pytest only. Every escape in this repository is executed for real,
+  # and the whole measurement plus the test suite import nothing outside the
+  # standard library. The paid leg needs a vendor SDK and a key and is never
+  # run in CI. If the measurement ever grows a dependency this job goes red,
+  # which is the signal.
+  #
+  # The tests execute real subprocesses, so they are slower than a unit suite
+  # (~40s) and that is inherent: a repository whose claim is "run for real, not
+  # modeled" cannot verify itself without running things. Host safety is
+  # asserted, not assumed: the runner caps wall clock, memory, file size and
+  # cpu, uses no per-UID limit, and only self- limiting probes ever detach.
+  measurement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install pytest only
+        run: |
+          python -m pip install --upgrade pip
+          pip install "pytest>=8,<10"
+
+      - name: Tests (real subprocesses; ~40s)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest -q -rs
+
+      - name: Offline matrix
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python scripts/offline_demo.py
+
+      # A README is prose and drifts; audit/*.json is evidence and does not.
+      # This rebuilds each published figure from the JSON and requires the
+      # exact string, so a re-run that shifts a number fails loudly rather
+      # than leaving the document quietly wrong.
+      - name: README numbers match the shipped results
+        run: python scripts/check_readme_numbers.py

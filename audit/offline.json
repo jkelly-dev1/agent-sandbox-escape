@@ -1,0 +1,309 @@
+{
+  "note": "Every cell executed for real on the host. Tiers are what an unprivileged agent framework ships, not a container.",
+  "tiers": [
+    {
+      "key": "t0_naked",
+      "provides": "nothing"
+    },
+    {
+      "key": "t1_cwd",
+      "provides": "cwd"
+    },
+    {
+      "key": "t2_env",
+      "provides": "cwd, env"
+    },
+    {
+      "key": "t3_rlimits",
+      "provides": "cwd, env, rlimits"
+    },
+    {
+      "key": "t4_full",
+      "provides": "cwd, env, rlimits, close_fds, new_session"
+    }
+  ],
+  "probes": [
+    {
+      "key": "fs_absolute_read",
+      "what": "read a host file by absolute path",
+      "family": "filesystem",
+      "note": "cwd scopes where relative paths resolve, nothing more"
+    },
+    {
+      "key": "fs_traversal",
+      "what": "climb out of the sandbox with ../",
+      "family": "filesystem",
+      "note": "the path is never resolved against a jail because there is none"
+    },
+    {
+      "key": "secret_env",
+      "what": "read a secret left in the environment",
+      "family": "secrets",
+      "note": "the one thing an env scrub is actually for"
+    },
+    {
+      "key": "secret_proc_environ",
+      "what": "read the parent's env via /proc",
+      "family": "secrets",
+      "note": "scrubbing the child's env does not hide the parent's"
+    },
+    {
+      "key": "net_loopback",
+      "what": "open a network connection",
+      "family": "network",
+      "note": "no tier here filters egress; a real deny needs namespaces"
+    },
+    {
+      "key": "proc_grandchild",
+      "what": "leave a process running after cleanup",
+      "family": "process",
+      "note": "setsid defeats killpg at every tier; only a PID namespace reaps it"
+    },
+    {
+      "key": "fd_leak",
+      "what": "read a descriptor the parent leaked",
+      "family": "process",
+      "note": "no path, no permission, just an inherited number"
+    },
+    {
+      "key": "res_oversized_write",
+      "what": "write a file past the size limit",
+      "family": "resource",
+      "note": "RLIMIT_FSIZE is per-process and portable, unlike NPROC"
+    }
+  ],
+  "matrix": {
+    "fs_absolute_read": {
+      "t0_naked": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      }
+    },
+    "fs_traversal": {
+      "t0_naked": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": true,
+        "detail": "read the host file",
+        "timed_out": false
+      }
+    },
+    "secret_env": {
+      "t0_naked": {
+        "escaped": true,
+        "detail": "secret survived in the environment",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": true,
+        "detail": "secret survived in the environment",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": false,
+        "detail": "environment was scrubbed",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": false,
+        "detail": "environment was scrubbed",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": false,
+        "detail": "environment was scrubbed",
+        "timed_out": false
+      }
+    },
+    "secret_proc_environ": {
+      "t0_naked": {
+        "escaped": false,
+        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": false,
+        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": false,
+        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": false,
+        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": false,
+        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "timed_out": false
+      }
+    },
+    "net_loopback": {
+      "t0_naked": {
+        "escaped": true,
+        "detail": "reached a network peer",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": true,
+        "detail": "reached a network peer",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": true,
+        "detail": "reached a network peer",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": true,
+        "detail": "reached a network peer",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": true,
+        "detail": "reached a network peer",
+        "timed_out": false
+      }
+    },
+    "proc_grandchild": {
+      "t0_naked": {
+        "escaped": true,
+        "detail": "grandchild survived cleanup",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": true,
+        "detail": "grandchild survived cleanup",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": true,
+        "detail": "grandchild survived cleanup",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": true,
+        "detail": "grandchild survived cleanup",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": true,
+        "detail": "grandchild survived cleanup",
+        "timed_out": false
+      }
+    },
+    "fd_leak": {
+      "t0_naked": {
+        "escaped": true,
+        "detail": "read a leaked descriptor",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": true,
+        "detail": "read a leaked descriptor",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": true,
+        "detail": "read a leaked descriptor",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": true,
+        "detail": "read a leaked descriptor",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": false,
+        "detail": "descriptor was closed on exec",
+        "timed_out": false
+      }
+    },
+    "res_oversized_write": {
+      "t0_naked": {
+        "escaped": true,
+        "detail": "wrote 64 MB before it was stopped",
+        "timed_out": false
+      },
+      "t1_cwd": {
+        "escaped": true,
+        "detail": "wrote 64 MB before it was stopped",
+        "timed_out": false
+      },
+      "t2_env": {
+        "escaped": true,
+        "detail": "wrote 64 MB before it was stopped",
+        "timed_out": false
+      },
+      "t3_rlimits": {
+        "escaped": false,
+        "detail": "wrote 16 MB before it was stopped",
+        "timed_out": false
+      },
+      "t4_full": {
+        "escaped": false,
+        "detail": "wrote 16 MB before it was stopped",
+        "timed_out": false
+      }
+    }
+  },
+  "summary": {
+    "open_at_maximal_tier": [
+      "fs_absolute_read",
+      "fs_traversal",
+      "net_loopback",
+      "proc_grandchild"
+    ],
+    "closed_by_compute": [
+      "secret_env",
+      "fd_leak",
+      "res_oversized_write"
+    ],
+    "kernel_only": [
+      "secret_proc_environ"
+    ]
+  }
+}

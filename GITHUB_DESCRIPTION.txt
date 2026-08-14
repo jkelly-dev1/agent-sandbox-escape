@@ -1,0 +1,2 @@
+Which agent-sandbox escapes the isolation flags people actually deploy really
+stop -- every escape executed for real, not modeled, on the host.

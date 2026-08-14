@@ -1,0 +1,17 @@
+[project]
+name = "agent-sandbox-escape"
+version = "0.1.0"
+description = "Which agent-sandbox escapes the isolation flags people actually deploy really stop -- run for real, not modeled"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "James Kelly" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+real = ["anthropic>=0.60", "openai>=1.40"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
