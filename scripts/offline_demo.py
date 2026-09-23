@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -55,6 +56,7 @@ def main() -> int:
 
     root = Path(tempfile.mkdtemp(prefix="agb-demo-"))
     cells = build(root)
+    shutil.rmtree(root, ignore_errors=True)   # build leaves it empty; reap it
 
     print("THE MATRIX -- ESCAPED means the escape reached outside the sandbox")
     print(format_matrix(cells))

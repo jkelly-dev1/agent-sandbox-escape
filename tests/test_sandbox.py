@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import resource
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,7 +41,10 @@ BY_TIER = {t.key: t for t in TIERS}
 @pytest.fixture(scope="module")
 def matrix():
     root = Path(tempfile.mkdtemp(prefix="test-agb-"))
-    return build(root)
+    try:
+        yield build(root)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 # ------------------------------------------------------------- host safety
@@ -136,10 +140,10 @@ def test_rlimits_are_applied_in_the_limited_tiers():
 
 
 def test_nproc_is_not_used_as_a_control():
-    """Pins a defect and its finding. RLIMIT_NPROC is per-UID system-wide, so
-    setting it stops escapes by an accident of the host's process count. It was
-    removed, and it must stay removed: a child in the limited tier must see the
-    INHERITED nproc limit, not one this harness imposed."""
+    """RLIMIT_NPROC is per-UID system-wide, so setting it stops escapes by an
+    accident of the host's process count. It must not be set: a child in the
+    limited tier must see the INHERITED nproc limit, not one this harness
+    imposed."""
     inherited = resource.getrlimit(resource.RLIMIT_NPROC)
     with Session("np") as s:
         result = run_probe(
@@ -162,14 +166,16 @@ def test_the_naked_tier_escapes_everything_it_can():
     """t0 is the baseline. Every probe that is escapable at all must escape
     with no isolation, or the probe is not testing what it claims. The two
     exceptions are named: env-scrub cannot matter at t0 (nothing is scrubbed,
-    so it DOES escape), and the /proc probe is blocked by the kernel at every
-    tier including this one."""
+    so it DOES escape), and the /proc probe does not escape at any tier; on
+    this class of host the read succeeds and simply finds no secret in the
+    parent's execed environment, which is a host fact and not a sandbox one."""
     root = Path(tempfile.mkdtemp(prefix="naked-"))
     cells = build(root)
+    shutil.rmtree(root, ignore_errors=True)
     for probe in PROBES:
         escaped = cells[probe.key]["t0_naked"]["escaped"]
         if probe.key == "secret_proc_environ":
-            assert not escaped        # kernel, not sandbox
+            assert not escaped        # host fact, not the sandbox
         else:
             assert escaped, f"{probe.key} did not escape the naked tier"
 
@@ -222,22 +228,32 @@ def test_each_compute_close_happens_at_the_expected_flag(matrix):
 
 
 def test_the_kernel_block_is_labelled_not_silent(matrix):
-    """secret_proc_environ is stopped everywhere by the host kernel, not by any
-    tier. That is a different fact from 'the sandbox stopped it', and the cell
-    must SAY which, or the matrix credits the sandbox with the kernel's work."""
+    """secret_proc_environ never escapes, and the cell must say why without
+    crediting a block that did not happen. Two outcomes are honest: the read
+    was denied by the kernel, or it succeeded and the parent's execed
+    environment held no secret. A cell that instead says 'blocked by the
+    kernel' claims a block while the read in fact succeeded, so asserting only
+    that the word 'kernel' appears is not enough, because it appears in that
+    false attribution too. Assert the false attribution is absent and one of
+    the two honest outcomes is named."""
     for tier in TIERS:
         cell = matrix["secret_proc_environ"][tier.key]
+        detail = cell["detail"]
         assert not cell["escaped"]
-        assert "kernel" in cell["detail"], (
-            "the /proc block is reported without naming the kernel, so it "
-            "reads as a sandbox win")
+        assert "blocked by the kernel" not in detail, (
+            "the cell credits a kernel block this judge does not emit; "
+            "regenerate the artifact with the current code")
+        assert ("not a kernel block" in detail
+                or "denied by the kernel" in detail), (
+            "the /proc cell must say whether the read was denied by the kernel "
+            "or succeeded and was empty; a silent result reads as a sandbox win")
 
 
 def test_a_resource_close_is_portable():
-    """Directly guards the NPROC defect. The resource close must survive a
-    change in the host's ambient process count. RLIMIT_FSIZE is per-process and
-    passes this; RLIMIT_NPROC did not, so it is gone. Runs the probe twice and
-    requires the same verdict."""
+    """Guards portability. The resource close must survive a change in the
+    host's ambient process count. RLIMIT_FSIZE is per-process and passes this;
+    RLIMIT_NPROC is per-UID and would not, so it is not a control here. Runs
+    the probe twice and requires the same verdict."""
     root = Path(tempfile.mkdtemp(prefix="port-"))
     sensitive = root / "s.txt"
     sensitive.write_text(HOST_SECRET_MARKER)
@@ -251,14 +267,19 @@ def test_a_resource_close_is_portable():
     finally:
         for k in kids:
             k.wait()
+        shutil.rmtree(root, ignore_errors=True)
     assert first["escaped"] == second["escaped"] is False
 
 
 def test_the_matrix_is_reproducible():
     """Two builds must agree on every cell. A cell that flickers is not a
     measurement, and every table in the README is one build."""
-    a = build(Path(tempfile.mkdtemp(prefix="r1-")))
-    b = build(Path(tempfile.mkdtemp(prefix="r2-")))
+    ra = Path(tempfile.mkdtemp(prefix="r1-"))
+    rb = Path(tempfile.mkdtemp(prefix="r2-"))
+    a = build(ra)
+    b = build(rb)
+    shutil.rmtree(ra, ignore_errors=True)
+    shutil.rmtree(rb, ignore_errors=True)
     for probe in PROBES:
         for tier in TIERS:
             assert (a[probe.key][tier.key]["escaped"]
@@ -277,3 +298,112 @@ def test_no_probe_leaves_a_session_directory_behind():
     assert not path.exists()
     after = set(Path(tempfile.gettempdir()).glob("sbx-*"))
     assert after <= before
+
+
+# ------------------------------------------------- the act ran, not just a verdict
+
+# README's second sentence is "every escape executed for real on the host, not
+# modeled." Every test above asserts the boolean VERDICT, so a probe that
+# fabricated the verdict (printing HOST_SECRET_MARKER without opening a file,
+# or "pong" without connecting) would satisfy the judge and pass the suite.
+# These pin the MECHANISM: point a read probe at a file whose contents
+# are a fresh nonce and require the nonce to surface, which only a real read can
+# produce; and require the network probe to actually reach the listener.
+
+def _read_probe_surfaces(probe_key):
+    """Run a read probe at the naked tier against a file holding a unique nonce
+    and return (nonce, stdout). A probe that fabricated HOST_SECRET_MARKER
+    instead of reading would not surface the nonce."""
+    import uuid
+    nonce = "NONCE-" + uuid.uuid4().hex
+    root = Path(tempfile.mkdtemp(prefix="mech-"))
+    sensitive = root / "host_secret.txt"
+    sensitive.write_text(nonce + "\n")
+    try:
+        with Session(f"mech-{probe_key}") as s:
+            code, kwargs = BY_PROBE[probe_key].build(s, sensitive)
+            # fd_leak needs the parent to open and leak the descriptor, exactly
+            # as run_one does; the other reads take no setup.
+            if kwargs.pop("_needs_fd", False):
+                from sandbox.matrix import _open_leaked_fd
+                import os as _os
+                fd = _open_leaked_fd(sensitive)
+                code = code.replace("__FD__", str(fd))
+                try:
+                    result = run_probe(code, BY_TIER["t0_naked"], s.path,
+                                       **kwargs)
+                finally:
+                    _os.close(fd)
+            else:
+                result = run_probe(code, BY_TIER["t0_naked"], s.path, **kwargs)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    return nonce, result.stdout
+
+
+def test_fs_absolute_read_reads_the_real_file_not_a_constant():
+    """Pins 'executed for real' for the absolute-path read. If _read_outside
+    merely printed HOST_SECRET_MARKER it would satisfy _judge_read while opening
+    nothing; a fresh nonce that only a real open() can surface catches that."""
+    nonce, out = _read_probe_surfaces("fs_absolute_read")
+    assert nonce in out, (
+        "the fs read did not surface the file's real contents; the probe is "
+        "not reading the host file it claims to read")
+
+
+def test_fs_traversal_reads_the_real_file_not_a_constant():
+    """The same, for the ../ traversal read."""
+    nonce, out = _read_probe_surfaces("fs_traversal")
+    assert nonce in out, (
+        "the traversal read did not surface the file's real contents")
+
+
+def test_the_leaked_fd_read_reads_the_real_descriptor_not_a_constant():
+    """The same, for the leaked-descriptor read: the bytes must come from the
+    inherited fd, so a fresh nonce in the file must appear in the child's
+    output rather than a hard-coded marker."""
+    nonce, out = _read_probe_surfaces("fd_leak")
+    assert nonce in out, (
+        "the fd read did not surface the descriptor's real contents")
+
+
+def test_the_network_probe_actually_opens_a_connection():
+    """Pins 'executed for real' for egress. A probe that printed 'pong' without
+    connecting would satisfy _judge_network; require the listener to record a
+    real accepted connection."""
+    import socket
+    import threading
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    port = srv.getsockname()[1]
+    seen = []
+    stop = threading.Event()
+
+    def serve():
+        srv.settimeout(0.5)
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                continue
+            seen.append(1)
+            try:
+                conn.recv(16)
+                conn.sendall(b"pong")
+            finally:
+                conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    try:
+        with Session("mech-net") as s:
+            code, kwargs = BY_PROBE["net_loopback"].build(s, s.path)
+            kwargs.pop("_needs_listener", None)
+            code = code.replace("__PORT__", str(port))
+            result = run_probe(code, BY_TIER["t0_naked"], s.path, **kwargs)
+    finally:
+        stop.set()
+        srv.close()
+    assert seen, "the network probe never opened a connection to the listener"
+    assert "pong" in result.stdout

@@ -157,27 +157,27 @@
     "secret_proc_environ": {
       "t0_naked": {
         "escaped": false,
-        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "detail": "read the parent's environ and the secret was not in it; this is a contained result, not a kernel block",
         "timed_out": false
       },
       "t1_cwd": {
         "escaped": false,
-        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "detail": "read the parent's environ and the secret was not in it; this is a contained result, not a kernel block",
         "timed_out": false
       },
       "t2_env": {
         "escaped": false,
-        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "detail": "read the parent's environ and the secret was not in it; this is a contained result, not a kernel block",
         "timed_out": false
       },
       "t3_rlimits": {
         "escaped": false,
-        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "detail": "read the parent's environ and the secret was not in it; this is a contained result, not a kernel block",
         "timed_out": false
       },
       "t4_full": {
         "escaped": false,
-        "detail": "blocked by the kernel (yama.ptrace_scope=1), not by the sandbox",
+        "detail": "read the parent's environ and the secret was not in it; this is a contained result, not a kernel block",
         "timed_out": false
       }
     },

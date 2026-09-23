@@ -16,10 +16,14 @@ tmpfs and took the box down. Both are the same lesson:
     CGROUPS and process groups are the unit of lifecycle management. PIDS ARE
     NOT.
 
-So every probe here runs in ITS OWN SESSION via start_new_session=True, and
-cleanup kills the whole process GROUP with SIGKILL rather than waiting on a
-PID. A grandchild that outlives its parent is exactly one of the escapes being
-measured, which means the harness must be able to survive finding one.
+So the maximal tier runs its probe in ITS OWN SESSION via
+start_new_session=True, and cleanup there kills the whole process GROUP with
+SIGKILL rather than waiting on a PID. A tier that does not ask for a session
+shares the harness's own, and cleanup kills the child directly instead, because
+killing the group would kill the harness (see _kill_tree). Which tiers get a
+session is one of the things being measured. A grandchild that outlives its
+parent is exactly one of the escapes being measured, which means the harness
+must be able to survive finding one.
 
 And KILLPG is not enough, which is itself a measured Result. A child that
 calls setsid() moves into its OWN session and process group, so killpg on the
