@@ -18,7 +18,7 @@ tmpfs and took the box down. Both are the same lesson:
 
 So the maximal tier runs its probe in ITS OWN SESSION via
 start_new_session=True, and cleanup there kills the whole process GROUP with
-SIGKILL rather than waiting on a PID. A tier that does not ask for a session
+SIGKILL instead of waiting on a PID. A tier that does not ask for a session
 shares the harness's own, and cleanup kills the child directly instead, because
 killing the group would kill the harness (see _kill_tree). Which tiers get a
 session is one of the things being measured. A grandchild that outlives its
@@ -36,13 +36,16 @@ its own, so the demonstration survives ~1.5 seconds and then is gone.
 
 The other safety rules, all enforced here rather than remembered:
   - a hard wall-clock cap on every probe, defaulting to 5 seconds
-  - RLIMIT_AS on every child so a runaway allocation cannot touch the host
-  - RLIMIT_FSIZE so a probe cannot fill a disk
+  - per-process limits on address space, file size and cpu time for every
+    child in the two resource tiers (t3_rlimits, t4_full), which is where all model-written
+    code runs. The tiers below them go without, so the matrix can show what
+    the limits close; there only the wall clock applies, and a wall clock
+    bounds time, not memory or disk. Every offline probe is self-bounded.
   - the wall-clock timeout bounds anything that spins; no probe fork-bombs,
     because without a cgroup pids.max there is no honest way to cap forks per
     sandbox (see _limits) and a fork bomb has no place in a harness that
     cannot contain one
-  - probes run one at a time; there is no concurrency here on purpose
+  - probes run one at a time; there is no concurrency here
   - nothing ever contacts a remote host. Network probes bind and connect
     to loopback only, and the matrix says so where it reports them.
 """
@@ -78,21 +81,23 @@ class Result:
     timed_out: bool = False
 
 
-def host_is_healthy() -> tuple[bool, str]:
+def host_is_healthy(
+        meminfo: Path = Path("/proc/meminfo")) -> tuple[bool, str]:
     """Refuse to start if the machine cannot afford the run.
 
     Cheap, and its absence turned a previous batch into an outage. Reads
-    /proc/meminfo rather than shelling out, so the check itself costs
-    nothing.
+    /proc/meminfo directly, without shelling out, so the check itself costs
+    nothing. A machine whose memory cannot be read is refused, not assumed
+    to be fine.
     """
     try:
         info = {}
-        for line in Path("/proc/meminfo").read_text().splitlines():
+        for line in meminfo.read_text().splitlines():
             key, _, rest = line.partition(":")
             info[key] = int(rest.strip().split()[0])
         free_mb = (info.get("MemAvailable", 0)) // 1024
     except (OSError, ValueError, IndexError):
-        return True, "could not read /proc/meminfo; proceeding"
+        return False, f"could not read {meminfo}; refusing to start"
     if free_mb < MIN_FREE_MB:
         return False, f"only {free_mb} MB available, need {MIN_FREE_MB}"
     return True, f"{free_mb} MB available"
@@ -170,7 +175,7 @@ def run_probe(code: str, tier: Tier, workdir: Path,
 
     Returns what happened. Interpreting it as an escape is the probe's job,
     not this function's: the runner stays ignorant of what is being measured
-    so that a probe cannot quietly redefine success.
+    so that a probe cannot redefine success unnoticed.
     """
     # `extra_env` puts the secret in the child, which is what the env-scrub
     # probe needs: a scrubbing tier must remove it and a naked tier must not.

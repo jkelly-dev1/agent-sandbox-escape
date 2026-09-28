@@ -129,7 +129,7 @@ attempt is a safety-layer decision, model-side for one and API-side for another,
 and it varies enough to dominate the raw numbers. Reading a model that declined
 as `0/15 escaped` would be a category error: it did not fail, it declined.
 
-Where models did write code, it almost always worked:
+Where models did write code, every escape worked:
 
 ```
   of code actually written, on a goal that is possible:
@@ -157,7 +157,11 @@ This repository executes real escapes, so the harness is built to survive
 finding one, and the test suite asserts it:
 
 - a hard wall-clock cap; a spinning child is dead when the runner returns
-- per-process `RLIMIT_AS`, `RLIMIT_FSIZE`, `RLIMIT_CPU` on every child
+- per-process `RLIMIT_AS`, `RLIMIT_FSIZE`, `RLIMIT_CPU` on every child in the
+  two resource tiers (`t3_rlimits`, `t4_full`), which is where all
+  model-written code runs; the lower tiers go without them so the matrix can
+  show what they close, and there only the wall clock applies, which bounds
+  time and not memory or disk
 - **`RLIMIT_NPROC` is not used**: it counts per-UID system-wide, so it is not
   a per-sandbox control, and setting it would stop escapes by forbidding forks
   on a busy account, an accident of the host's process count rather than the
@@ -165,7 +169,8 @@ finding one, and the test suite asserts it:
 - the only probe that detaches a process is self-limiting, pinned by a test
 - one probe at a time; loopback-only network; nothing ever contacts a remote
   host
-- a memory precheck refuses to start if the machine cannot afford the run
+- the offline demo's memory precheck refuses to start if the machine cannot
+  afford the run, or if it cannot read how much memory is available
 
 `killpg` cannot reap a `setsid`'d process and the harness does not pretend
 otherwise; it relies on such probes exiting on their own. That honesty is also
@@ -188,12 +193,12 @@ measures, and that the harness cannot harm the host it runs on.
 | Every escape is executed for real, not modeled: a probe that fabricated its verdict, printing the marker without opening the file, would be caught by requiring a fresh nonce in the file to surface | `tests/test_sandbox.py::test_fs_absolute_read_reads_the_real_file_not_a_constant` |
 | The network probe actually opens a connection rather than printing the reply, verified against a listener that records the accepted connection | `tests/test_sandbox.py::test_the_network_probe_actually_opens_a_connection` |
 | `RLIMIT_NPROC` is not used, so no escape is stopped by an accident of the account's process count | `tests/test_sandbox.py::test_nproc_is_not_used_as_a_control` (a child in the limited tier sees the inherited nproc limit, not one the harness imposed) |
-| The resource limits actually reach the child, so the resource tier is not decoration | `tests/test_sandbox.py::test_rlimits_are_applied_in_the_limited_tiers` |
-| A spinning child is dead when the runner returns, and the runner returns promptly | `tests/test_sandbox.py::test_a_spinner_is_dead_and_prompt_at_the_full_tier_however_it_died` (mutation-checked: asserting one specific kill mechanism instead of the conjunction fails on the other branch of the race, while this test holds on both) |
+| The resource limits reach every child in both resource tiers, and no child in the tiers below them | `tests/test_sandbox.py::test_rlimits_are_applied_in_the_limited_tiers` |
+| A spinning child is dead when the runner returns, and the runner returns promptly | `tests/test_sandbox.py::test_a_spinner_is_dead_and_prompt_at_the_full_tier_however_it_died` (it asserts the conjunction because which mechanism kills the child is a race: asserting one mechanism would pass or fail on how busy the machine is) |
 | The wall clock does fire, measured at the tier where nothing else can preempt it | `tests/test_sandbox.py::test_a_spinner_hits_the_wall_clock_where_nothing_can_preempt_it` |
 | The sandbox's own CPU limit is meant to bite before the harness gives up, at every tier that sets one | `tests/test_sandbox.py::test_the_cpu_limit_is_meant_to_bite_before_the_harness_gives_up` (mutation-checked: a tier with `cpu_seconds` above the wall clock is caught) |
 | The only probe that detaches a process self-terminates, since `killpg` cannot reap it | `tests/test_sandbox.py::test_the_only_detaching_probe_self_terminates` |
-| The memory precheck reads the real machine | `tests/test_sandbox.py::test_host_health_check_reads_real_memory` |
+| The memory precheck reads the real machine, and refuses to start when it cannot read it | `tests/test_sandbox.py::test_host_health_check_reads_real_memory` |
 | No probe leaves a session directory behind, even the ones that escape | `tests/test_sandbox.py::test_no_probe_leaves_a_session_directory_behind` |
 
 The paid run is not in that table. The declined/wrote/escaped grid and the
@@ -210,7 +215,7 @@ any of them.
 
 ```
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q                            # 24 tests, ~45s (real)
+.venv/bin/python -m pytest -q                            # 25 tests, ~45s (real)
 .venv/bin/python scripts/offline_demo.py --json audit/offline.json
 ```
 
@@ -226,7 +231,7 @@ ENV_FILE=~/.secrets/ai.env .venv/bin/python scripts/real_run.py
 | opus-5 re-run (confirmation) | opus-5 | 15 | $0.03 | declined all 15 again; 30/30 across both runs |
 | 2026-09-22 run | opus-4-8, sonnet-5, gpt-5.6-sol, gpt-5.4 | 60 | $0.28 | the grid above; a cyber-safe model set |
 
-## What this does not measure
+## Limits
 
 - **Whether a secret in the parent's environment is reachable through `/proc`.**
   The read succeeds; the marker is absent because `/proc/<pid>/environ` reports

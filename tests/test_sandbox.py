@@ -2,16 +2,16 @@
 
 Two kinds of test live here. The first kind is about HOST SAFETY: this
 repository executes real escapes, so the harness must be provably unable to
-harm the machine it runs on, and that is not a comment, it is assertions. The
-second kind is about the MATRIX being a measurement: the naked tier must
-actually escape, isolation must be monotone, and each staircase close must be
-caused by the flag it is attributed to rather than by an accident of the host.
+harm the machine it runs on, and the tests below assert it. The second kind
+is about the MATRIX being a measurement: the naked tier must actually escape,
+isolation must be monotone, and each staircase close must be caused by the
+flag it is attributed to rather than by an accident of the host.
 
 Why portability is asserted separately from monotonicity. A close at the
 resource tier can be produced by the HOST rather than by the sandbox:
 RLIMIT_NPROC is a per-UID system-wide limit, so on an account already running
 more processes than the cap it denies every fork and two escapes stop looking
-like isolation working. That result flips on a quieter machine.
+like isolation working. That result flips on a less busy machine.
 Test_isolation_is_monotone cannot see the difference. The portability test
 can, because it asserts the close survives a change in ambient process count.
 """
@@ -107,7 +107,7 @@ def test_a_spinner_is_dead_and_prompt_at_the_full_tier_however_it_died():
 
 
 def test_the_only_detaching_probe_self_terminates():
-    """proc_grandchild survives killpg by design, setsid defeats it, so
+    """proc_grandchild survives killpg because setsid defeats it, so
     host safety depends on it exiting ON ITS OWN. If that probe were ever
     edited to sleep longer than a breath, the harness could leave a process
     behind. This pins the self-limit."""
@@ -124,19 +124,28 @@ def test_the_only_detaching_probe_self_terminates():
 
 
 def test_rlimits_are_applied_in_the_limited_tiers():
-    """RLIMIT_AS and RLIMIT_FSIZE must actually reach the child, or the
-    resource tier is decoration and a runaway probe could touch the host."""
-    with Session("lim") as s:
-        result = run_probe(
-            "import resource\n"
-            "a = resource.getrlimit(resource.RLIMIT_AS)[0]\n"
-            "f = resource.getrlimit(resource.RLIMIT_FSIZE)[0]\n"
-            "print(a, f)",
-            BY_TIER["t3_rlimits"], s.path)
-    assert result.returncode == 0
-    a_lim, f_lim = (int(x) for x in result.stdout.split())
-    assert a_lim == runner.ADDRESS_SPACE_BYTES
-    assert f_lim == runner.MAX_FILE_BYTES
+    """RLIMIT_AS and RLIMIT_FSIZE must actually reach the child in both
+    resource tiers, or the resource tier is decoration and a runaway probe
+    could touch the host. And they must reach NO child below those tiers:
+    the README scopes the limits to t3 and t4, and a lower tier that quietly
+    gained them would move the staircase without the matrix saying why."""
+    inherited = (resource.getrlimit(resource.RLIMIT_AS)[0],
+                 resource.getrlimit(resource.RLIMIT_FSIZE)[0])
+    limited = (runner.ADDRESS_SPACE_BYTES, runner.MAX_FILE_BYTES)
+    seen = {}
+    for tier in TIERS:
+        with Session("lim") as s:
+            result = run_probe(
+                "import resource\n"
+                "a = resource.getrlimit(resource.RLIMIT_AS)[0]\n"
+                "f = resource.getrlimit(resource.RLIMIT_FSIZE)[0]\n"
+                "print(a, f)",
+                tier, s.path)
+        assert result.returncode == 0, (tier.key, result)
+        seen[tier.key] = tuple(int(x) for x in result.stdout.split())
+    for key, got in seen.items():
+        want = limited if key in ("t3_rlimits", "t4_full") else inherited
+        assert got == want, f"{key}: child saw {got}, expected {want}"
 
 
 def test_nproc_is_not_used_as_a_control():
@@ -155,9 +164,32 @@ def test_nproc_is_not_used_as_a_control():
         "not a per-sandbox control")
 
 
-def test_host_health_check_reads_real_memory():
+def test_host_health_check_reads_real_memory(tmp_path):
     ok, msg = runner.host_is_healthy()
     assert isinstance(ok, bool) and "MB" in msg
+    # It also fails closed: a machine whose memory cannot be read is refused.
+    ok, msg = runner.host_is_healthy(tmp_path / "no-such-meminfo")
+    assert ok is False and "refusing" in msg, msg
+    # A readable file with no MemAvailable line says nothing about free
+    # memory, so it is refused too, not read as plenty.
+    partial = tmp_path / "meminfo"
+    partial.write_text("MemTotal: 1 kB\n")
+    ok, msg = runner.host_is_healthy(partial)
+    assert ok is False, msg
+
+
+def test_the_offline_demo_exits_nonzero_when_the_precheck_refuses(
+        monkeypatch, capsys):
+    """CI runs the offline demo, so its exit code is a verdict. A refusal
+    that returned 0 would let that step pass while printing its own
+    failure."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import offline_demo
+    monkeypatch.setattr(offline_demo, "host_is_healthy",
+                        lambda: (False, "could not read memory"))
+    monkeypatch.setattr(sys, "argv", ["offline_demo.py"])
+    assert offline_demo.main() == 2
+    assert "REFUSING TO RUN" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------- the matrix
@@ -199,10 +231,11 @@ def test_isolation_is_monotone(matrix):
 
 
 def test_the_flat_escapes_are_flat(matrix):
-    """The finding, asserted. Filesystem reach and network egress are unchanged
-    from the naked tier to the maximal compute tier, because compute isolation
-    is not capability isolation. If a tier ever stops one of these, it acquired
-    a capability control and the README's central claim needs revisiting."""
+    """The finding, asserted. Filesystem reach and network egress are the same
+    at the naked tier and at the maximal compute tier, because compute
+    isolation is not capability isolation. If a tier ever stops one of these,
+    it acquired a capability control and the README's central claim needs
+    revisiting."""
     for key in ("fs_absolute_read", "fs_traversal", "net_loopback",
                 "proc_grandchild"):
         for tier in TIERS:

@@ -19,9 +19,10 @@ jobs:
   #
   # The tests execute real subprocesses, so they are slower than a unit suite
   # (~40s) and that is inherent: a repository whose claim is "run for real, not
-  # modeled" cannot verify itself without running things. Host safety is
-  # asserted, not assumed: the runner caps wall clock, memory, file size and
-  # cpu, uses no per-UID limit, and only self- limiting probes ever detach.
+  # modeled" cannot verify itself without running things. The tests assert
+  # host safety: the runner caps wall clock on every tier and memory, file
+  # size and cpu in the two resource tiers, uses no per-UID limit, and only
+  # self-limiting probes ever detach.
   measurement:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -31,9 +32,9 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -54,8 +55,9 @@ jobs:
         run: python scripts/offline_demo.py
 
       # A README is prose and drifts; audit/*.json is evidence and does not.
-      # This rebuilds each published figure from the JSON and requires the
-      # exact string, so a re-run that shifts a number fails loudly rather
-      # than leaving the document quietly wrong.
+      # This rebuilds the measured figures (the matrix, the grids, the costs
+      # and the refusal count) from the JSON and requires the exact string,
+      # so a re-run that shifts a number fails loudly instead of leaving a
+      # wrong figure in the document.
       - name: README numbers match the shipped results
         run: python scripts/check_readme_numbers.py

@@ -1,9 +1,12 @@
-"""Re-derive every published number in README.md from audit/*.json and diff them.
+"""Re-derive README.md's measured figures from audit/*.json and diff them.
+
+Not derived: the test count under Reproducing, and the grandchild probe's
+~1.5 s self-termination, which tests/test_sandbox.py pins in the probe source.
 
 A README is prose and drifts; audit/*.json is evidence and does not. This
 script rebuilds each figure from the JSON and asserts the exact string is
 present in the README, so a re-run that shifts a figure fails loudly instead of
-leaving the document quietly wrong.
+leaving a wrong figure in the document.
 
     python3 scripts/check_readme_numbers.py            check
     python3 scripts/check_readme_numbers.py --emit     print what it derives
@@ -14,7 +17,7 @@ the participation grid are fixed-width blocks, and their column padding is
 normalized away with everything else: this checks the FIGURES, not the layout.
 
 The count is printed whether OR NOT anything is missing, so a version of this
-script that quietly stopped deriving half of them is visible rather than clean.
+script that stopped deriving half of them shows it in the count.
 """
 
 import json
@@ -119,6 +122,7 @@ def prose_figures():
         return "%s | %d | $%.2f" % (models, len(run["records"]),
                                     run["actual_cost_usd"])
     out.append(("prose:cost-first-run", cost_row(orig)))
+    out.append(("prose:cost-rerun", cost_row(rerun)))
     out.append(("prose:cost-second-run", cost_row(fresh)))
 
     # opus-5 declined every attempt, in the original run and its re-run alike.

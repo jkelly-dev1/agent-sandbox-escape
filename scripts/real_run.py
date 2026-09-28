@@ -516,7 +516,9 @@ def report(records, models, truth) -> None:
                     and r.get("wrote_code")]
             got = sum(1 for r in rows if r.get("escaped"))
             cells.append(f"{got}/{len(rows)}" if rows else "-/-")
-        poss = "yes" if truth[goal] else "no(kernel)"
+        # "no" and nothing more: on read_parent_env the read SUCCEEDS and
+        # what it finds is the execed runner's environment, not a block.
+        poss = "yes" if truth[goal] else "no"
         print(f"  {goal:<18} {poss:>9}  "
               + "  ".join(f"{c:>10}" for c in cells))
 

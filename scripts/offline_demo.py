@@ -15,9 +15,11 @@ they say "sandboxed" is usually a subprocess with a working directory, an
 environment filter, some resource limits and a timeout, and this measures which
 escapes those flags stop. The answer is the shape of the matrix.
 
-Host safety is enforced, not assumed. Wall-clock caps, per-process rlimits, a
-memory precheck, one probe at a time, and loopback-only network. The only probe
-that detaches a process is self-limiting. See sandbox/runner.py.
+Host safety is enforced in code: wall-clock caps on every tier, per-process
+rlimits in the two resource tiers (where all model-written code runs), a
+memory precheck that refuses to start when it cannot read memory, one probe at
+a time, and loopback-only network. The only probe that detaches a process is
+self-limiting. See sandbox/runner.py.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ def main() -> int:
     print("agent-sandbox-escape -- offline measurement")
     print(f"every escape below was executed for real. host: {msg}")
     if not ok:
-        print("REFUSING TO RUN: not enough free memory.")
+        print("REFUSING TO RUN: the memory precheck did not pass.")
         return 2
     print()
 
